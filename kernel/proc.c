@@ -681,3 +681,17 @@ procdump(void)
     printf("\n");
   }
 }
+
+int
+dump(void)
+{
+    struct proc* curproc = myproc();
+    struct trapframe* curtrapframe = curproc->trapframe;
+    void* base = ((void*) curtrapframe) + 176; // pointer to the s2 field
+    for (int i = 0; i < 10; i++) {
+        int regnum = i + 2;
+        uint32* value = base + i * 8;
+        printf("s%d: %d\n", regnum, *value);
+    }
+    return 0;
+}
