@@ -695,3 +695,54 @@ dump(void)
     }
     return 0;
 }
+
+int
+dump2(int pid, int register_num, uint64 return_value_addr)
+{
+    struct proc* curproc = myproc();
+    int curpid = curproc->pid;
+
+    // resolve proc structure by given process's pid
+    struct proc* targetproc;
+    int i = 0;
+    for (; i < NPROC; i++) {
+        targetproc = &proc[i];
+        if (pid == targetproc->pid) break;
+    }
+
+    // if not found -> -2 (process doesn't exist)
+    if (i == NPROC) {
+        return -2;
+    }
+
+    // iterate through parents and check whether current process there
+    struct proc* p = targetproc;
+    int ppid = p->pid;
+    while (ppid != curpid && p->parent) {
+        p = p->parent;
+        ppid = p->pid;
+    }
+
+    // if not found -> -1 (access denied)
+    if (ppid != curpid) {
+        return -1;
+    }
+
+    // if incorrect register_num -> -3
+    if (register_num < 2 || register_num > 11) {
+        return -3;
+    }
+
+    // resolve register value
+    struct trapframe* targettrapframe = targetproc->trapframe;
+    void* base = ((void*) targettrapframe) + 176; // pointer to the s2 field
+    void* register_value = base + register_num * 8;
+
+    // write register value to the user-space
+    pagetable_t pagetable = p->pagetable;
+    if (copyout(pagetable, return_value_addr, register_value, sizeof(uint64)) < 0) {
+        return -4;
+    }
+
+    return 0;
+}
