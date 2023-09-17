@@ -736,7 +736,7 @@ dump2(int pid, int register_num, uint64 return_value_addr)
     // resolve register value
     struct trapframe* targettrapframe = targetproc->trapframe;
     void* base = ((void*) targettrapframe) + 176; // pointer to the s2 field
-    void* register_value = base + register_num * 8;
+    void* register_value = base + (register_num - 2) * 8;
 
     // write register value to the user-space
     pagetable_t pagetable = p->pagetable;
