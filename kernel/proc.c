@@ -687,12 +687,16 @@ dump(void)
 {
     struct proc* curproc = myproc();
     struct trapframe* curtrapframe = curproc->trapframe;
-    void* base = ((void*) curtrapframe) + 176; // pointer to the s2 field
-    for (int i = 0; i < 10; i++) {
-        int regnum = i + 2;
-        uint32* value = base + i * 8;
-        printf("s%d: %d\n", regnum, *value);
-    }
+    printf("s2: %d\n", curtrapframe->s2);
+    printf("s3: %d\n", curtrapframe->s3);
+    printf("s4: %d\n", curtrapframe->s4);
+    printf("s5: %d\n", curtrapframe->s5);
+    printf("s6: %d\n", curtrapframe->s6);
+    printf("s7: %d\n", curtrapframe->s7);
+    printf("s8: %d\n", curtrapframe->s8);
+    printf("s9: %d\n", curtrapframe->s9);
+    printf("s10: %d\n", curtrapframe->s10);
+    printf("s11: %d\n", curtrapframe->s11);
     return 0;
 }
 
@@ -728,15 +732,44 @@ dump2(int pid, int register_num, uint64 return_value_addr)
         return -1;
     }
 
-    // if incorrect register_num -> -3
-    if (register_num < 2 || register_num > 11) {
-        return -3;
-    }
-
     // resolve register value
+    // if incorrect register_num -> -3
     struct trapframe* targettrapframe = targetproc->trapframe;
-    void* base = ((void*) targettrapframe) + 176; // pointer to the s2 field
-    void* register_value = base + (register_num - 2) * 8;
+    void* register_value;
+    switch (register_num) {
+        case 2:
+            register_value = &(targettrapframe->s2);
+            break;
+        case 3:
+            register_value = &(targettrapframe->s3);
+            break;
+        case 4:
+            register_value = &(targettrapframe->s4);
+            break;
+        case 5:
+            register_value = &(targettrapframe->s5);
+            break;
+        case 6:
+            register_value = &(targettrapframe->s6);
+            break;
+        case 7:
+            register_value = &(targettrapframe->s7);
+            break;
+        case 8:
+            register_value = &(targettrapframe->s8);
+            break;
+        case 9:
+            register_value = &(targettrapframe->s9);
+            break;
+        case 10:
+            register_value = &(targettrapframe->s10);
+            break;
+        case 11:
+            register_value = &(targettrapframe->s11);
+            break;
+        default:
+            return -3;
+    }
 
     // write register value to the user-space
     pagetable_t pagetable = p->pagetable;
