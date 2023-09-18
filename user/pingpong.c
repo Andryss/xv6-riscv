@@ -61,5 +61,7 @@ int main() {
     } else {
         parent(pipes);
     }
+    close(pipes[0]);
+    close(pipes[1]);
     exit(0);
 }
