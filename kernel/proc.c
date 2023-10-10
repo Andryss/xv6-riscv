@@ -779,3 +779,88 @@ dump2(int pid, int register_num, uint64 return_value_addr)
 
     return 0;
 }
+
+int
+setreg(int pid, int register_num, uint64 source_value_addr)
+{
+    struct proc* curproc = myproc();
+    int curpid = curproc->pid;
+
+    // resolve proc structure by given process's pid
+    struct proc* targetproc;
+    for(targetproc = proc; targetproc < &proc[NPROC]; targetproc++) {
+        acquire(&targetproc->lock);
+        if(targetproc->pid == pid) {
+            goto found;
+        } else {
+            release(&targetproc->lock);
+        }
+    }
+    // if not found -> -2 (process doesn't exist)
+    return -2;
+
+found:;
+    // iterate through parents and check whether current process there
+    struct proc* p = targetproc;
+    int ppid = p->pid;
+    while (ppid != curpid && p->parent) {
+        p = p->parent;
+        ppid = p->pid;
+    }
+
+    // if not found -> -1 (access denied)
+    if (ppid != curpid) {
+        release(&targetproc->lock);
+        return -1;
+    }
+
+    // resolve register value
+    // if incorrect register_num -> -3
+    struct trapframe* targettrapframe = targetproc->trapframe;
+    void* target_register;
+    switch (register_num) {
+        case 2:
+            target_register = &(targettrapframe->s2);
+            break;
+        case 3:
+            target_register = &(targettrapframe->s3);
+            break;
+        case 4:
+            target_register = &(targettrapframe->s4);
+            break;
+        case 5:
+            target_register = &(targettrapframe->s5);
+            break;
+        case 6:
+            target_register = &(targettrapframe->s6);
+            break;
+        case 7:
+            target_register = &(targettrapframe->s7);
+            break;
+        case 8:
+            target_register = &(targettrapframe->s8);
+            break;
+        case 9:
+            target_register = &(targettrapframe->s9);
+            break;
+        case 10:
+            target_register = &(targettrapframe->s10);
+            break;
+        case 11:
+            target_register = &(targettrapframe->s11);
+            break;
+        default:
+            release(&targetproc->lock);
+            return -3;
+    }
+
+    // write register value to the user-space
+    pagetable_t pagetable = p->pagetable;
+    if (copyin(pagetable, target_register, source_value_addr, sizeof(uint64)) < 0) {
+        release(&targetproc->lock);
+        return -4;
+    }
+
+    release(&targetproc->lock);
+    return 0;
+}

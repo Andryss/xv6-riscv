@@ -107,3 +107,15 @@ sys_dump2(void)
     argaddr(2, &return_value);
     return dump2(pid, register_num, return_value);
 }
+
+uint64
+sys_setreg(void)
+{
+    int pid, register_num;
+    uint64 source_value;
+
+    argint(0, &pid);
+    argint(1, &register_num);
+    argaddr(2, &source_value);
+    return dump2(pid, register_num, source_value);
+}
