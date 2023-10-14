@@ -153,6 +153,7 @@ UPROGS=\
 	$U/_dumptests\
 	$U/_printdump2\
 	$U/_dump2tests\
+	$U/_printsetreg\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
