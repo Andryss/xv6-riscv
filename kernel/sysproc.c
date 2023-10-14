@@ -117,5 +117,5 @@ sys_setreg(void)
     argint(0, &pid);
     argint(1, &register_num);
     argaddr(2, &source_value);
-    return dump2(pid, register_num, source_value);
+    return setreg(pid, register_num, source_value);
 }

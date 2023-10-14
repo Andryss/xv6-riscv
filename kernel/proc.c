@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "setreg.h"
 
 struct cpu cpus[NCPU];
 
@@ -781,7 +782,7 @@ dump2(int pid, int register_num, uint64 return_value_addr)
 }
 
 int
-setreg(int pid, int register_num, uint64 source_value_addr)
+setreg(int pid, int register_num, uint64 source_value)
 {
     struct proc* curproc = myproc();
     int curpid = curproc->pid;
@@ -814,51 +815,106 @@ found:;
         return -1;
     }
 
-    // resolve register value
+    // resolve register value and set
     // if incorrect register_num -> -3
-    struct trapframe* targettrapframe = targetproc->trapframe;
-    void* target_register;
+    struct trapframe* trpframe = targetproc->trapframe;
     switch (register_num) {
-        case 2:
-            target_register = &(targettrapframe->s2);
+        case RA:
+            trpframe->ra = source_value;
             break;
-        case 3:
-            target_register = &(targettrapframe->s3);
+        case SP:
+            trpframe->sp = source_value;
             break;
-        case 4:
-            target_register = &(targettrapframe->s4);
+        case GP:
+            trpframe->gp = source_value;
             break;
-        case 5:
-            target_register = &(targettrapframe->s5);
+        case TP:
+            trpframe->tp = source_value;
             break;
-        case 6:
-            target_register = &(targettrapframe->s6);
+        case T0:
+            trpframe->t0 = source_value;
             break;
-        case 7:
-            target_register = &(targettrapframe->s7);
+        case T1:
+            trpframe->t1 = source_value;
             break;
-        case 8:
-            target_register = &(targettrapframe->s8);
+        case T2:
+            trpframe->t2 = source_value;
             break;
-        case 9:
-            target_register = &(targettrapframe->s9);
+        case S0:
+            trpframe->s0 = source_value;
             break;
-        case 10:
-            target_register = &(targettrapframe->s10);
+        case S1:
+            trpframe->s1 = source_value;
             break;
-        case 11:
-            target_register = &(targettrapframe->s11);
+        case A0:
+            trpframe->a0 = source_value;
+            break;
+        case A1:
+            trpframe->a1 = source_value;
+            break;
+        case A2:
+            trpframe->a2 = source_value;
+            break;
+        case A3:
+            trpframe->a3 = source_value;
+            break;
+        case A4:
+            trpframe->a4 = source_value;
+            break;
+        case A5:
+            trpframe->a5 = source_value;
+            break;
+        case A6:
+            trpframe->a6 = source_value;
+            break;
+        case A7:
+            trpframe->a7 = source_value;
+            break;
+        case S2:
+            trpframe->s2 = source_value;
+            break;
+        case S3:
+            trpframe->s3 = source_value;
+            break;
+        case S4:
+            trpframe->s4 = source_value;
+            break;
+        case S5:
+            trpframe->s5 = source_value;
+            break;
+        case S6:
+            trpframe->s6 = source_value;
+            break;
+        case S7:
+            trpframe->s7 = source_value;
+            break;
+        case S8:
+            trpframe->s8 = source_value;
+            break;
+        case S9:
+            trpframe->s9 = source_value;
+            break;
+        case S10:
+            trpframe->s10 = source_value;
+            break;
+        case S11:
+            trpframe->s11 = source_value;
+            break;
+        case T3:
+            trpframe->t3 = source_value;
+            break;
+        case T4:
+            trpframe->t4 = source_value;
+            break;
+        case T5:
+            trpframe->t5 = source_value;
+            break;
+        case T6:
+            trpframe->t6 = source_value;
             break;
         default:
             release(&targetproc->lock);
             return -3;
-    }
-
-    // write register value to the user-space
-    pagetable_t pagetable = p->pagetable;
-    if (copyin(pagetable, target_register, source_value_addr, sizeof(uint64)) < 0) {
-        release(&targetproc->lock);
-        return -4;
     }
 
     release(&targetproc->lock);
