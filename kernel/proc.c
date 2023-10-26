@@ -8,7 +8,18 @@
 
 struct cpu cpus[NCPU];
 
-struct proc proc[NPROC];
+//struct proc proc[NPROC];
+
+struct proclist {
+  struct proc *proc;
+  struct proclist *next;
+};
+
+struct proclist proclisthead;
+pagetable_t kpagetable;
+
+int nextprocnum = 0;
+struct spinlock procnum_lock;
 
 struct proc *initproc;
 
@@ -26,36 +37,40 @@ extern char trampoline[]; // trampoline.S
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
 
+void
+proclist_add(struct proc *p)
+{
+  struct proclist *plist = bd_malloc(sizeof(struct proclist));
+  plist->proc = p;
+  plist->next = &proclisthead;
+
+  struct proclist* lastproc = proclisthead.next;
+  while (lastproc->next != &proclisthead) {
+    lastproc = lastproc->next;
+  }
+  lastproc->next = plist;
+}
+
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
 void
 proc_mapstacks(pagetable_t kpgtbl)
 {
-  struct proc *p;
-  
-  for(p = proc; p < &proc[NPROC]; p++) {
-    char *pa = kalloc();
-    if(pa == 0)
-      panic("kalloc");
-    uint64 va = KSTACK((int) (p - proc));
-    kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-  }
+  kpagetable = kpgtbl;
 }
 
 // initialize the proc table.
 void
 procinit(void)
 {
-  struct proc *p;
-  
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
-  for(p = proc; p < &proc[NPROC]; p++) {
-      initlock(&p->lock, "proc");
-      p->state = UNUSED;
-      p->kstack = KSTACK((int) (p - proc));
-  }
+
+  proclisthead = (struct proclist) {
+    .next = &proclisthead
+  };
+  initlock(&procnum_lock, "procnum");
 }
 
 // Must be called with interrupts disabled,
@@ -102,33 +117,74 @@ allocpid()
   return pid;
 }
 
-// Look in the process table for an UNUSED proc.
-// If found, initialize state required to run in the kernel,
-// and return with p->lock held.
-// If there are no free procs, or a memory allocation fails, return 0.
-static struct proc*
-allocproc(void)
+int
+allocprocnum()
 {
-  struct proc *p;
+  int procnum;
 
-  for(p = proc; p < &proc[NPROC]; p++) {
-    acquire(&p->lock);
-    if(p->state == UNUSED) {
-      goto found;
-    } else {
-      release(&p->lock);
-    }
+  acquire(&procnum_lock);
+  procnum = nextprocnum;
+  nextprocnum = nextprocnum + 1;
+  release(&procnum_lock);
+
+  return procnum;
+}
+
+struct proc*
+allocnewproc(void)
+{
+  struct proc *p = bd_malloc(sizeof(struct proc));
+
+  initlock(&p->lock, "proc");
+
+  p->pid = allocpid();
+  p->state = USED;
+
+  int curprocnum = allocprocnum();
+  printf("%d\n", curprocnum);
+  p->kstack = KSTACK(curprocnum);
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK(curprocnum);
+  kvmmap(kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+
+  // Allocate a trapframe page.
+  if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+    bd_free(p);
+    return 0;
   }
-  return 0;
 
-found:
+  // An empty user page table.
+  p->pagetable = proc_pagetable(p);
+  if(p->pagetable == 0){
+    kfree((void*)p->trapframe);
+    bd_free(p);
+    return 0;
+  }
+
+  // Set up new context to start executing at forkret,
+  // which returns to user space.
+  memset(&p->context, 0, sizeof(p->context));
+  p->context.ra = (uint64)forkret;
+  p->context.sp = p->kstack + PGSIZE;
+
+  acquire(&p->lock);
+  proclist_add(p);
+  return p;
+}
+
+// p->lock must be held.
+struct proc*
+allocexistproc(struct proc* p)
+{
+
   p->pid = allocpid();
   p->state = USED;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
-    release(&p->lock);
     return 0;
   }
 
@@ -136,7 +192,6 @@ found:
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
     freeproc(p);
-    release(&p->lock);
     return 0;
   }
 
@@ -147,6 +202,29 @@ found:
   p->context.sp = p->kstack + PGSIZE;
 
   return p;
+}
+
+// Look in the process table for an UNUSED proc.
+// If found, initialize state required to run in the kernel,
+// and return with p->lock held.
+// If there are no free procs, or a memory allocation fails, return 0.
+static struct proc*
+allocproc(void)
+{
+  struct proclist* plist = proclisthead.next;
+  for (; plist != &proclisthead; plist = plist->next) {
+    struct proc* p = plist->proc;
+    acquire(&p->lock);
+    if (p->state == UNUSED) {
+      struct proc* pnew;
+      if ((pnew = allocexistproc(p)) == 0) {
+        release(&p->lock);
+      }
+      return pnew;
+    }
+    release(&p->lock);
+  }
+  return allocnewproc();
 }
 
 // free a proc structure and the data hanging from it,
@@ -332,7 +410,9 @@ reparent(struct proc *p)
 {
   struct proc *pp;
 
-  for(pp = proc; pp < &proc[NPROC]; pp++){
+  struct proclist* plist = proclisthead.next;
+  for (; plist != &proclisthead; plist = plist->next) {
+    pp = plist->proc;
     if(pp->parent == p){
       pp->parent = initproc;
       wakeup(initproc);
@@ -399,7 +479,10 @@ wait(uint64 addr)
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
-    for(pp = proc; pp < &proc[NPROC]; pp++){
+
+    struct proclist* plist = proclisthead.next;
+    for (; plist != &proclisthead; plist = plist->next) {
+      pp = plist->proc;
       if(pp->parent == p){
         // make sure the child isn't still in exit() or swtch().
         acquire(&pp->lock);
@@ -452,7 +535,9 @@ scheduler(void)
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    for(p = proc; p < &proc[NPROC]; p++) {
+    struct proclist* plist = proclisthead.next;
+    for (; plist != &proclisthead; plist = plist->next) {
+      p = plist->proc;
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
         // Switch to chosen process.  It is the process's job
@@ -568,7 +653,9 @@ wakeup(void *chan)
 {
   struct proc *p;
 
-  for(p = proc; p < &proc[NPROC]; p++) {
+  struct proclist* plist = proclisthead.next;
+  for (; plist != &proclisthead; plist = plist->next) {
+    p = plist->proc;
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
@@ -587,7 +674,9 @@ kill(int pid)
 {
   struct proc *p;
 
-  for(p = proc; p < &proc[NPROC]; p++){
+  struct proclist* plist = proclisthead.next;
+  for (; plist != &proclisthead; plist = plist->next) {
+    p = plist->proc;
     acquire(&p->lock);
     if(p->pid == pid){
       p->killed = 1;
@@ -670,9 +759,13 @@ procdump(void)
   char *state;
 
   printf("\n");
-  for(p = proc; p < &proc[NPROC]; p++){
-    if(p->state == UNUSED)
+  struct proclist* plist = proclisthead.next;
+  for (; plist != &proclisthead; plist = plist->next) {
+    p = plist->proc;
+    if(p->state == UNUSED) {
+      printf("unused\n");
       continue;
+    }
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];
     else
@@ -708,17 +801,16 @@ dump2(int pid, int register_num, uint64 return_value_addr)
 
     // resolve proc structure by given process's pid
     struct proc* targetproc;
-    int i = 0;
-    for (; i < NPROC; i++) {
-        targetproc = &proc[i];
-        if (pid == targetproc->pid) break;
+    struct proclist* plist = proclisthead.next;
+    for (; plist != &proclisthead; plist = plist->next) {
+      targetproc = plist->proc;
+      if (pid == targetproc->pid) goto found;
     }
 
     // if not found -> -2 (process doesn't exist)
-    if (i == NPROC) {
-        return -2;
-    }
+    return -2;
 
+  found:;
     // iterate through parents and check whether current process there
     struct proc* p = targetproc;
     int ppid = p->pid;
