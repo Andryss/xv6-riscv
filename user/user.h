@@ -24,6 +24,7 @@ int sleep(int);
 int uptime(void);
 int dump(void);
 int dump2(int, int, uint64*);
+void procdump(void);
 
 // ulib.c
 int stat(const char*, struct stat*);

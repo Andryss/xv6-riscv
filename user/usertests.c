@@ -1959,7 +1959,7 @@ iref(char *s)
 void
 forktest(char *s)
 {
-  enum{ N = 1000 };
+  enum{ N = 1000000  };
   int n, pid;
 
   for(n=0; n<N; n++){
@@ -2600,7 +2600,7 @@ struct test {
   {reparent, "reparent" },
   {twochildren, "twochildren"},
   {forkfork, "forkfork"},
-  {forkforkfork, "forkforkfork"},
+  {forkforkfork, "forkforkfork"}, // fails
   {reparent2, "reparent2"},
   {mem, "mem"},
   {sharedfd, "sharedfd"},
@@ -2617,12 +2617,12 @@ struct test {
   {rmdot, "rmdot"},
   {dirfile, "dirfile"},
   {iref, "iref"},
-  {forktest, "forktest"},
+  {forktest, "forktest"}, // fails
   {sbrkbasic, "sbrkbasic"},
   {sbrkmuch, "sbrkmuch"},
   {kernmem, "kernmem"},
   {MAXVAplus, "MAXVAplus"},
-  {sbrkfail, "sbrkfail"},
+  {sbrkfail, "sbrkfail"}, // fails
   {sbrkarg, "sbrkarg"},
   {validatetest, "validatetest"},
   {bsstest, "bsstest"},
@@ -2973,6 +2973,7 @@ runtests(struct test *tests, char *justone) {
         return 1;
       }
     }
+    procdump();
   }
   return 0;
 }

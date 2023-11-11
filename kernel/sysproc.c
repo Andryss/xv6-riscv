@@ -107,3 +107,9 @@ sys_dump2(void)
     argaddr(2, &return_value);
     return dump2(pid, register_num, return_value);
 }
+
+void
+sys_procdump(void)
+{
+  procdump();
+}
