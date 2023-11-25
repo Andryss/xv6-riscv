@@ -316,6 +316,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
           panic("uvmcopy: page not present");
       pa = PTE2PA(*pte);
       flags = PTE_FLAGS(*pte);
+      flags = flags & (~PTE_W);
       if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
         // (child) exit -> (parent) wait -> freeproc -> proc_freepagetable -> uvmfree -> uvmunmap -> kfree(pa) -> use after free?
         //
