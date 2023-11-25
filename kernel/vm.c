@@ -314,9 +314,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
           panic("uvmcopy: pte should exist");
       if((*pte & PTE_V) == 0)
           panic("uvmcopy: page not present");
+      *pte = *pte & (~PTE_W); // delete parent table write
       pa = PTE2PA(*pte);
       flags = PTE_FLAGS(*pte);
-      flags = flags & (~PTE_W);
       if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
         // (child) exit -> (parent) wait -> freeproc -> proc_freepagetable -> uvmfree -> uvmunmap -> kfree(pa) -> use after free?
         //
@@ -330,6 +330,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
         goto err;
       }
   }
+//  printf("uvmcopy\n");
+//  vmprint(old);
+//  vmprint(new);
   return 0;
 
  err:

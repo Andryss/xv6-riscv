@@ -67,6 +67,41 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13 || r_scause() == 15) {
+    // copy-on-write page fault
+    printf("cow pf %d proc=%s pid=%d va=%p\n", r_scause(), p->name, p->pid, r_stval());
+    char *mem;
+    uint64 va, pa;
+    pte_t *pte;
+    uint flags;
+    pagetable_t pagetable;
+
+    va = PGROUNDDOWN(r_stval());
+    pagetable = p->pagetable;
+
+//    vmprint(pagetable);
+
+    if ((pte = walk(pagetable, va, 0)) == 0)
+      panic("cow walk");
+
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+
+    if ((flags & PTE_W) != 0)
+      panic("cow not write");
+
+    if((mem = kalloc()) == 0)
+      panic("cow alloc");
+
+    memmove(mem, (char*)pa, PGSIZE);
+
+    uvmunmap(pagetable, va, 1, 0);
+//    vmprint(pagetable);
+    if(mappages(pagetable, va, PGSIZE, (uint64)mem, flags | PTE_W) != 0){
+      kfree(mem);
+      panic("cow mappages");
+    }
+//    vmprint(pagetable);
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
