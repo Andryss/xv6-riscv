@@ -308,22 +308,26 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
+      if((pte = walk(old, i, 0)) == 0)
+          panic("uvmcopy: pte should exist");
+      if((*pte & PTE_V) == 0)
+          panic("uvmcopy: page not present");
+      pa = PTE2PA(*pte);
+      flags = PTE_FLAGS(*pte);
+      if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+        // (child) exit -> (parent) wait -> freeproc -> proc_freepagetable -> uvmfree -> uvmunmap -> kfree(pa) -> use after free?
+        //
+        // stderr:
+        //
+        // usertrap(): unexpected scause 0x0000000000000002 pid=2           2	  Illegal instruction
+        //             sepc=0x0000000000001000 stval=0x0000000000000000
+        // usertrap(): unexpected scause 0x000000000000000c pid=1           12	Instruction page fault
+        //             sepc=0x0000000000001000 stval=0x0000000000001000
+        // panic: init exiting
+        goto err;
+      }
   }
   return 0;
 
@@ -343,6 +347,33 @@ uvmclear(pagetable_t pagetable, uint64 va)
   if(pte == 0)
     panic("uvmclear");
   *pte &= ~PTE_U;
+}
+
+void
+vmprintwalk(pagetable_t pagetable, int level)
+{
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V){
+      // print page table line
+      printf("..");
+      for (int l = level; l > 0; l--)
+        printf(" ..");
+      printf("%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+    }
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      vmprintwalk((pagetable_t)child, level + 1);
+    }
+  }
+}
+
+void
+vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n", pagetable);
+  vmprintwalk(pagetable, 0);
 }
 
 // Copy from kernel to user.

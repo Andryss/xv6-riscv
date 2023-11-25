@@ -19,6 +19,8 @@ int flags2perm(int flags)
     return perm;
 }
 
+static int first_proc = 1;
+
 int
 exec(char *path, char **argv)
 {
@@ -86,6 +88,11 @@ exec(char *path, char **argv)
   uvmclear(pagetable, sz-2*PGSIZE);
   sp = sz;
   stackbase = sp - PGSIZE;
+
+  if (first_proc) {
+    vmprint(pagetable);
+    first_proc = 0;
+  }
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
