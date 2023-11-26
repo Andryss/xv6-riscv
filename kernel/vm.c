@@ -314,8 +314,12 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
           panic("uvmcopy: pte should exist");
       if((*pte & PTE_V) == 0)
           panic("uvmcopy: page not present");
-      *pte = *pte & (~PTE_W); // delete parent table write
+      if ((*pte & PTE_W) != 0) { // if copy writable page
+        *pte &= ~PTE_W; // delete parent table write
+        *pte |= PTE_B; // mark page as blocked
+      }
       pa = PTE2PA(*pte);
+      pagerefsinc((void *)pa); // increment page refs
       flags = PTE_FLAGS(*pte);
       if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
         // (child) exit -> (parent) wait -> freeproc -> proc_freepagetable -> uvmfree -> uvmunmap -> kfree(pa) -> use after free?
@@ -327,17 +331,14 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
         // usertrap(): unexpected scause 0x000000000000000c pid=1           12	Instruction page fault
         //             sepc=0x0000000000001000 stval=0x0000000000001000
         // panic: init exiting
-        goto err;
+        uvmunmap(new, 0, i / PGSIZE, 1);
+        return -1;
       }
   }
 //  printf("uvmcopy\n");
 //  vmprint(old);
 //  vmprint(new);
   return 0;
-
- err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
-  return -1;
 }
 
 // mark a PTE invalid for user access.
@@ -387,6 +388,9 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
+  pte_t *pte0;
+  uint flags0;
+  int refs0;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
@@ -396,6 +400,45 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
+
+    // get address flags
+    pte0 = walk(pagetable, va0, 0);
+    flags0 = PTE_FLAGS(*pte0);
+
+    if((flags0 & PTE_B) != 0) { // page is blocked
+      flags0 &= ~PTE_B; // unlock page
+      refs0 = pagerefsdec((void *)pa0);
+
+      if (refs0 > 0) { // has more than 1 usage
+        // duplicate page
+        char *mem;
+        if((mem = kalloc()) == 0)
+          return -1;
+        memmove(mem, (char*)pa0, PGSIZE - n);
+
+        // remap page
+        uvmunmap(pagetable, va0, 1, 0);
+        if(mappages(pagetable, va0, PGSIZE, (uint64)mem, flags0 | PTE_W) != 0){
+          kfree(mem);
+          mappages(pagetable, va0, PGSIZE, pa0, flags0 | PTE_B);
+          return -1;
+        }
+
+        pa0 = (uint64)mem;
+      } else if (refs0 == 0) { // has only 1 usage
+        pagerefsinc((void *)pa0);
+        
+        // remap page
+        uvmunmap(pagetable, va0, 1, 0);
+        if(mappages(pagetable, va0, PGSIZE, pa0, flags0 | PTE_W) != 0){
+          mappages(pagetable, va0, PGSIZE, pa0, flags0 | PTE_B);
+          return -1;
+        }
+      } else {
+        panic("copyout refs");
+      }
+    }
+
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
     len -= n;

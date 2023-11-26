@@ -69,41 +69,61 @@ usertrap(void)
     // ok
   } else if(r_scause() == 13 || r_scause() == 15) {
     // copy-on-write page fault
-    printf("cow pf %d proc=%s pid=%d va=%p\n", r_scause(), p->name, p->pid, r_stval());
+    // printf("cow pf %d proc=%s pid=%d va=%p\n", r_scause(), p->name, p->pid, r_stval());
     char *mem;
     uint64 va, pa;
     pte_t *pte;
     uint flags;
+    int refs;
     pagetable_t pagetable;
 
     va = PGROUNDDOWN(r_stval());
     pagetable = p->pagetable;
 
-//    vmprint(pagetable);
+    // check that page can be accessed by user
+    if (walkaddr(pagetable, va) == 0) {
+      setkilled(p);
+      exit(-1);
+    }
 
-    if ((pte = walk(pagetable, va, 0)) == 0)
-      panic("cow walk");
-
+    // get physical address and flags
+    pte = walk(pagetable, va, 0);
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
 
-    if ((flags & PTE_W) != 0)
-      panic("cow not write");
+    // check whether page is blocked
+    if ((flags & PTE_B) == 0) {
+      setkilled(p);
+      exit(-1);
+    }
 
-    if((mem = kalloc()) == 0)
-      panic("cow alloc");
+    flags &= ~PTE_B; // unlock the page
+    refs = pagerefsdec((void *)pa); // decrease page references
+    if (refs > 0) { // has more than 1 usage
+      // duplicate page
+      if((mem = kalloc()) == 0) {
+        setkilled(p);
+        exit(-1);
+      }
+      memmove(mem, (char*)pa, PGSIZE);
+    } else if (refs == 0) { // only 1 usage
+      // stay on the same page
+      pagerefsinc((void *)pa);
+      mem = (void *)pa;
+    } else {
+      // page out of order
+      setkilled(p);
+      exit(-1);
+      return;
+    }
 
-    memmove(mem, (char*)pa, PGSIZE);
-
+    // remap page with write permission
     uvmunmap(pagetable, va, 1, 0);
-//    vmprint(pagetable);
     if(mappages(pagetable, va, PGSIZE, (uint64)mem, flags | PTE_W) != 0){
-      kfree(mem);
       panic("cow mappages");
     }
-//    vmprint(pagetable);
   } else {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+    printf("usertrap(): unexpected scause %p pid=%d name=%s\n", r_scause(), p->pid, p->name);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     setkilled(p);
   }
